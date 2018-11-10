@@ -20,14 +20,9 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-#if defined (WIN32) || defined (WIN64) || defined (_WIN32) || defined (_WIN64)
-#pragma warning(disable:28719)		// disable MSVC's warning on strncpy()
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 
 #include "SparcInstPrinter.h"
 #include "../../MCInst.h"
@@ -39,8 +34,8 @@
 
 #include "Sparc.h"
 
-static const char *getRegisterName(unsigned RegNo);
-static void printInstruction(MCInst *MI, SStream *O, const MCRegisterInfo *MRI);
+static char *getRegisterName(unsigned RegNo);
+static void printInstruction(MCInst *MI, SStream *O, MCRegisterInfo *MRI);
 static void printMemOperand(MCInst *MI, int opNum, SStream *O, const char *Modifier);
 static void printOperand(MCInst *MI, int opNum, SStream *O);
 
@@ -86,7 +81,7 @@ void Sparc_post_printer(csh ud, cs_insn *insn, char *insn_asm, MCInst *mci)
 	if (insn->id == SPARC_INS_CASX) {
 		// first op is actually a memop, not regop
 		insn->detail->sparc.operands[0].type = SPARC_OP_MEM;
-		insn->detail->sparc.operands[0].mem.base = (uint8_t)insn->detail->sparc.operands[0].reg;
+		insn->detail->sparc.operands[0].mem.base = insn->detail->sparc.operands[0].reg;
 		insn->detail->sparc.operands[0].mem.disp = 0;
 	}
 }
@@ -177,9 +172,9 @@ static void printOperand(MCInst *MI, int opNum, SStream *O)
 		if (MI->csh->detail) {
 			if (MI->csh->doing_mem) {
 				if (MI->flat_insn->detail->sparc.operands[MI->flat_insn->detail->sparc.op_count].mem.base)
-					MI->flat_insn->detail->sparc.operands[MI->flat_insn->detail->sparc.op_count].mem.index = (uint8_t)reg;
+					MI->flat_insn->detail->sparc.operands[MI->flat_insn->detail->sparc.op_count].mem.index = reg;
 				else
-					MI->flat_insn->detail->sparc.operands[MI->flat_insn->detail->sparc.op_count].mem.base = (uint8_t)reg;
+					MI->flat_insn->detail->sparc.operands[MI->flat_insn->detail->sparc.op_count].mem.base = reg;
 			} else {
 				MI->flat_insn->detail->sparc.operands[MI->flat_insn->detail->sparc.op_count].type = SPARC_OP_REG;
 				MI->flat_insn->detail->sparc.operands[MI->flat_insn->detail->sparc.op_count].reg = reg;
@@ -262,8 +257,18 @@ static void printOperand(MCInst *MI, int opNum, SStream *O)
 				Imm = (uint32_t)MI->address + Imm * 4;
 				break;
 		}
-		
-		printInt32(O, Imm);
+
+		if (Imm >= 0) {
+			if (Imm > HEX_THRESHOLD)
+				SStream_concat(O, "0x%x", Imm);
+			else
+				SStream_concat(O, "%u", Imm);
+		} else {
+			if (Imm < -HEX_THRESHOLD)
+				SStream_concat(O, "-0x%x", -Imm);
+			else
+				SStream_concat(O, "-%u", -Imm);
+		}
 
 		if (MI->csh->detail) {
 			if (MI->csh->doing_mem) {

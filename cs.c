@@ -1,11 +1,9 @@
 /* Capstone Disassembly Engine */
 /* By Nguyen Anh Quynh <aquynh@gmail.com>, 2013-2014 */
 #if defined (WIN32) || defined (WIN64) || defined (_WIN32) || defined (_WIN64)
-#pragma warning(disable:4996)			// disable MSVC's warning on strcpy()
-#pragma warning(disable:28719)		// disable MSVC's warning on strcpy()
+#pragma warning(disable:4996)
 #endif
 #if defined(CAPSTONE_HAS_OSXKERNEL)
-#include <Availability.h>
 #include <libkern/libkern.h>
 #else
 #include <stddef.h>
@@ -19,26 +17,7 @@
 #include "utils.h"
 #include "MCRegisterInfo.h"
 
-#if defined(_KERNEL_MODE)
-#include "windows\winkernel_mm.h"
-#endif
-
-// Issue #681: Windows kernel does not support formatting float point
-#if defined(_KERNEL_MODE) && !defined(CAPSTONE_DIET)
-#if defined(CAPSTONE_HAS_ARM) || defined(CAPSTONE_HAS_ARM64)
-#define CAPSTONE_STR_INTERNAL(x) #x
-#define CAPSTONE_STR(x) CAPSTONE_STR_INTERNAL(x)
-#define CAPSTONE_MSVC_WRANING_PREFIX __FILE__ "("CAPSTONE_STR(__LINE__)") : warning message : "
-
-#pragma message(CAPSTONE_MSVC_WRANING_PREFIX "Windows driver does not support full features for selected architecture(s). Define CAPSTONE_DIET to compile Capstone with only supported features. See issue #681 for details.")
-
-#undef CAPSTONE_MSVC_WRANING_PREFIX
-#undef CAPSTONE_STR
-#undef CAPSTONE_STR_INTERNAL
-#endif
-#endif	// defined(_KERNEL_MODE) && !defined(CAPSTONE_DIET)
-
-#if !defined(CAPSTONE_HAS_OSXKERNEL) && !defined(CAPSTONE_DIET) && !defined(_KERNEL_MODE)
+#ifdef CAPSTONE_USE_SYS_DYN_MEM
 #define INSN_CACHE_SIZE 32
 #else
 // reduce stack variable size for kernel/firmware
@@ -46,235 +25,65 @@
 #endif
 
 // default SKIPDATA mnemonic
-#ifndef CAPSTONE_DIET
 #define SKIPDATA_MNEM ".byte"
-#else // No printing is available in diet mode
-#define SKIPDATA_MNEM NULL
-#endif
 
-#include "arch/AArch64/AArch64Module.h"
-#include "arch/ARM/ARMModule.h"
-#include "arch/Mips/MipsModule.h"
-#include "arch/PowerPC/PPCModule.h"
-#include "arch/Sparc/SparcModule.h"
-#include "arch/SystemZ/SystemZModule.h"
-#include "arch/X86/X86Module.h"
-#include "arch/XCore/XCoreModule.h"
+cs_err (*arch_init[MAX_ARCH])(cs_struct *) = { NULL };
+cs_err (*arch_option[MAX_ARCH]) (cs_struct *, cs_opt_type, size_t value) = { NULL };
+void (*arch_destroy[MAX_ARCH]) (cs_struct *) = { NULL };
 
+extern void ARM_enable(void);
+extern void AArch64_enable(void);
+extern void Mips_enable(void);
+extern void X86_enable(void);
+extern void PPC_enable(void);
+extern void Sparc_enable(void);
+extern void SystemZ_enable(void);
+extern void XCore_enable(void);
 
-// constructor initialization for all archs
-static cs_err (*cs_arch_init[MAX_ARCH])(cs_struct *) = {
+static void archs_enable(void)
+{
+	static bool initialized = false;
+
+	if (initialized)
+		return;
+
 #ifdef CAPSTONE_HAS_ARM
-	ARM_global_init,
-#else
-	NULL,
+	ARM_enable();
 #endif
 #ifdef CAPSTONE_HAS_ARM64
-	AArch64_global_init,
-#else
-	NULL,
+	AArch64_enable();
 #endif
 #ifdef CAPSTONE_HAS_MIPS
-	Mips_global_init,
-#else
-	NULL,
-#endif
-#ifdef CAPSTONE_HAS_X86
-	X86_global_init,
-#else
-	NULL,
+	Mips_enable();
 #endif
 #ifdef CAPSTONE_HAS_POWERPC
-	PPC_global_init,
-#else
-	NULL,
+	PPC_enable();
 #endif
 #ifdef CAPSTONE_HAS_SPARC
-	Sparc_global_init,
-#else
-	NULL,
+	Sparc_enable();
 #endif
 #ifdef CAPSTONE_HAS_SYSZ
-	SystemZ_global_init,
-#else
-	NULL,
-#endif
-#ifdef CAPSTONE_HAS_XCORE
-	XCore_global_init,
-#else
-	NULL,
-#endif
-};
-
-// support cs_option() for all archs
-static cs_err (*cs_arch_option[MAX_ARCH]) (cs_struct *, cs_opt_type, size_t value) = {
-#ifdef CAPSTONE_HAS_ARM
-	ARM_option,
-#else
-	NULL,
-#endif
-#ifdef CAPSTONE_HAS_ARM64
-	AArch64_option,
-#else
-	NULL,
-#endif
-#ifdef CAPSTONE_HAS_MIPS
-	Mips_option,
-#else
-	NULL,
+	SystemZ_enable();
 #endif
 #ifdef CAPSTONE_HAS_X86
-	X86_option,
-#else
-	NULL,
-#endif
-#ifdef CAPSTONE_HAS_POWERPC
-	PPC_option,
-#else
-	NULL,
-#endif
-#ifdef CAPSTONE_HAS_SPARC
-	Sparc_option,
-#else
-	NULL,
-#endif
-#ifdef CAPSTONE_HAS_SYSZ
-	SystemZ_option,
-#else
-	NULL,
+	X86_enable();
 #endif
 #ifdef CAPSTONE_HAS_XCORE
-	XCore_option,
-#else
-	NULL,
+	XCore_enable();
 #endif
-};
 
-// bitmask for finding disallowed modes for an arch:
-// to be called in cs_open()/cs_option()
-cs_mode cs_arch_disallowed_mode_mask[MAX_ARCH] = {
-#ifdef CAPSTONE_HAS_ARM
-	~(CS_MODE_LITTLE_ENDIAN | CS_MODE_ARM | CS_MODE_V8 | CS_MODE_MCLASS | CS_MODE_THUMB | CS_MODE_BIG_ENDIAN),
-#else
-	0,
-#endif
-#ifdef CAPSTONE_HAS_ARM64
-	~(CS_MODE_LITTLE_ENDIAN | CS_MODE_ARM | CS_MODE_BIG_ENDIAN),
-#else
-	0,
-#endif
-#ifdef CAPSTONE_HAS_MIPS
-	~(CS_MODE_LITTLE_ENDIAN | CS_MODE_32 | CS_MODE_64 | CS_MODE_MICRO | CS_MODE_MIPS32R6 | CS_MODE_MIPSGP64 |
-	  CS_MODE_BIG_ENDIAN),
-#else
-	0,
-#endif
-#ifdef CAPSTONE_HAS_X86
-	~(CS_MODE_LITTLE_ENDIAN | CS_MODE_32 | CS_MODE_64 | CS_MODE_16),
-#else
-	0,
-#endif
-#ifdef CAPSTONE_HAS_POWERPC
-	~(CS_MODE_LITTLE_ENDIAN | CS_MODE_32 | CS_MODE_64 | CS_MODE_BIG_ENDIAN),
-#else
-	0,
-#endif
-#ifdef CAPSTONE_HAS_SPARC
-	~(CS_MODE_BIG_ENDIAN | CS_MODE_V9),
-#else
-	0,
-#endif
-#ifdef CAPSTONE_HAS_SYSZ
-	~(CS_MODE_BIG_ENDIAN),
-#else
-	0,
-#endif
-#ifdef CAPSTONE_HAS_XCORE
-	~(CS_MODE_BIG_ENDIAN),
-#else
-	0,
-#endif
-};
 
-static unsigned int all_arch =
-#ifdef CAPSTONE_HAS_ARM
-	(1 << CS_ARCH_ARM)
-#else
-	0
-#endif
-	|
-#ifdef CAPSTONE_HAS_ARM64
-	(1 << CS_ARCH_ARM64)
-#else
-	0
-#endif
-	|
-#ifdef CAPSTONE_HAS_MIPS
-	(1 << CS_ARCH_MIPS)
-#else
-	0
-#endif
-	|
-#ifdef CAPSTONE_HAS_X86
-	(1 << CS_ARCH_X86)
-#else
-	0
-#endif
-	|
-#ifdef CAPSTONE_HAS_POWERPC
-	(1 << CS_ARCH_PPC)
-#else
-	0
-#endif
-	|
-#ifdef CAPSTONE_HAS_SPARC
-	(1 << CS_ARCH_SPARC)
-#else
-	0
-#endif
-	|
-#ifdef CAPSTONE_HAS_SYSZ
-	(1 << CS_ARCH_SYSZ)
-#else
-	0
-#endif
-	|
-#ifdef CAPSTONE_HAS_XCORE
-	(1 << CS_ARCH_XCORE)
-#else
-	0
-#endif
-;
+	initialized = true;
+}
 
-#if defined(CAPSTONE_USE_SYS_DYN_MEM)
-#if !defined(CAPSTONE_HAS_OSXKERNEL) && !defined(_KERNEL_MODE)
+unsigned int all_arch = 0;
+
+#ifdef CAPSTONE_USE_SYS_DYN_MEM
 cs_malloc_t cs_mem_malloc = malloc;
 cs_calloc_t cs_mem_calloc = calloc;
 cs_realloc_t cs_mem_realloc = realloc;
 cs_free_t cs_mem_free = free;
 cs_vsnprintf_t cs_vsnprintf = vsnprintf;
-#elif defined(_KERNEL_MODE)
-cs_malloc_t cs_mem_malloc = cs_winkernel_malloc;
-cs_calloc_t cs_mem_calloc = cs_winkernel_calloc;
-cs_realloc_t cs_mem_realloc = cs_winkernel_realloc;
-cs_free_t cs_mem_free = cs_winkernel_free;
-cs_vsnprintf_t cs_vsnprintf = cs_winkernel_vsnprintf;
-#else
-extern void* kern_os_malloc(size_t size);
-extern void kern_os_free(void* addr);
-extern void* kern_os_realloc(void* addr, size_t nsize);
-
-static void* cs_kern_os_calloc(size_t num, size_t size)
-{
-	return kern_os_malloc(num * size); // malloc bzeroes the buffer
-}
-
-cs_malloc_t cs_mem_malloc = kern_os_malloc;
-cs_calloc_t cs_mem_calloc = cs_kern_os_calloc;
-cs_realloc_t cs_mem_realloc = kern_os_realloc;
-cs_free_t cs_mem_free = kern_os_free;
-cs_vsnprintf_t cs_vsnprintf = vsnprintf;
-#endif
 #else
 cs_malloc_t cs_mem_malloc = NULL;
 cs_calloc_t cs_mem_calloc = NULL;
@@ -284,8 +93,10 @@ cs_vsnprintf_t cs_vsnprintf = NULL;
 #endif
 
 CAPSTONE_EXPORT
-unsigned int CAPSTONE_API cs_version(int *major, int *minor)
+unsigned int cs_version(int *major, int *minor)
 {
+	archs_enable();
+
 	if (major != NULL && minor != NULL) {
 		*major = CS_API_MAJOR;
 		*minor = CS_API_MINOR;
@@ -295,8 +106,10 @@ unsigned int CAPSTONE_API cs_version(int *major, int *minor)
 }
 
 CAPSTONE_EXPORT
-bool CAPSTONE_API cs_support(int query)
+bool cs_support(int query)
 {
+	archs_enable();
+
 	if (query == CS_ARCH_ALL)
 		return all_arch == ((1 << CS_ARCH_ARM) | (1 << CS_ARCH_ARM64) |
 				(1 << CS_ARCH_MIPS) | (1 << CS_ARCH_X86) |
@@ -327,7 +140,7 @@ bool CAPSTONE_API cs_support(int query)
 }
 
 CAPSTONE_EXPORT
-cs_err CAPSTONE_API cs_errno(csh handle)
+cs_err cs_errno(csh handle)
 {
 	struct cs_struct *ud;
 	if (!handle)
@@ -339,7 +152,7 @@ cs_err CAPSTONE_API cs_errno(csh handle)
 }
 
 CAPSTONE_EXPORT
-const char * CAPSTONE_API cs_strerror(cs_err code)
+const char *cs_strerror(cs_err code)
 {
 	switch(code) {
 		default:
@@ -372,7 +185,7 @@ const char * CAPSTONE_API cs_strerror(cs_err code)
 }
 
 CAPSTONE_EXPORT
-cs_err CAPSTONE_API cs_open(cs_arch arch, cs_mode mode, csh *handle)
+cs_err cs_open(cs_arch arch, cs_mode mode, csh *handle)
 {
 	cs_err err;
 	struct cs_struct *ud;
@@ -381,13 +194,9 @@ cs_err CAPSTONE_API cs_open(cs_arch arch, cs_mode mode, csh *handle)
 		// with cs_option(CS_OPT_MEM)
 		return CS_ERR_MEMSETUP;
 
-	if (arch < CS_ARCH_MAX && cs_arch_init[arch]) {
-		// verify if requested mode is valid
-		if (mode & cs_arch_disallowed_mode_mask[arch]) {
-			*handle = 0;
-			return CS_ERR_MODE;
-		}
+	archs_enable();
 
+	if (arch < CS_ARCH_MAX && arch_init[arch]) {
 		ud = cs_mem_calloc(1, sizeof(*ud));
 		if (!ud) {
 			// memory insufficient
@@ -397,13 +206,14 @@ cs_err CAPSTONE_API cs_open(cs_arch arch, cs_mode mode, csh *handle)
 		ud->errnum = CS_ERR_OK;
 		ud->arch = arch;
 		ud->mode = mode;
+		ud->big_endian = mode & CS_MODE_BIG_ENDIAN;
 		// by default, do not break instruction into details
 		ud->detail = CS_OPT_OFF;
 
 		// default skipdata setup
 		ud->skipdata_setup.mnemonic = SKIPDATA_MNEM;
 
-		err = cs_arch_init[ud->arch](ud);
+		err = arch_init[ud->arch](ud);
 		if (err) {
 			cs_mem_free(ud);
 			*handle = 0;
@@ -420,7 +230,7 @@ cs_err CAPSTONE_API cs_open(cs_arch arch, cs_mode mode, csh *handle)
 }
 
 CAPSTONE_EXPORT
-cs_err CAPSTONE_API cs_close(csh *handle)
+cs_err cs_close(csh *handle)
 {
 	struct cs_struct *ud;
 
@@ -452,7 +262,7 @@ static void fill_insn(struct cs_struct *handle, cs_insn *insn, char *buffer, MCI
 #ifndef CAPSTONE_DIET
 	char *sp, *mnem;
 #endif
-	uint16_t copy_size = MIN(sizeof(insn->bytes), insn->size);
+	unsigned int copy_size = MIN(sizeof(insn->bytes), insn->size);
 
 	// fill the instruction bytes.
 	// we might skip some redundant bytes in front in the case of X86
@@ -470,6 +280,7 @@ static void fill_insn(struct cs_struct *handle, cs_insn *insn, char *buffer, MCI
 #ifndef CAPSTONE_DIET
 	// fill in mnemonic & operands
 	// find first space or tab
+	sp = buffer;
 	mnem = insn->mnemonic;
 	for (sp = buffer; *sp; sp++) {
 		if (*sp == ' '|| *sp == '\t')
@@ -502,7 +313,7 @@ static uint8_t skipdata_size(cs_struct *handle)
 	switch(handle->arch) {
 		default:
 			// should never reach
-			return (uint8_t)-1;
+			return -1;
 		case CS_ARCH_ARM:
 			// skip 2 bytes on Thumb mode.
 			if (handle->mode & CS_MODE_THUMB)
@@ -530,9 +341,10 @@ static uint8_t skipdata_size(cs_struct *handle)
 }
 
 CAPSTONE_EXPORT
-cs_err CAPSTONE_API cs_option(csh ud, cs_opt_type type, size_t value)
+cs_err cs_option(csh ud, cs_opt_type type, size_t value)
 {
 	struct cs_struct *handle;
+	archs_enable();
 
 	// cs_option() can be called with NULL handle just for CS_OPT_MEM
 	// This is supposed to be executed before all other APIs (even cs_open())
@@ -571,53 +383,36 @@ cs_err CAPSTONE_API cs_option(csh ud, cs_opt_type type, size_t value)
 			if (value)
 				handle->skipdata_setup = *((cs_opt_skipdata *)value);
 			return CS_ERR_OK;
-		case CS_OPT_MODE:
-			// verify if requested mode is valid
-			if (value & cs_arch_disallowed_mode_mask[handle->arch]) {
-				return CS_ERR_OPTION;
-			}
-			break;
 	}
 
-	return cs_arch_option[handle->arch](handle, type, value);
+	return arch_option[handle->arch](handle, type, value);
 }
 
 // generate @op_str for data instruction of SKIPDATA
-#ifndef CAPSTONE_DIET
 static void skipdata_opstr(char *opstr, const uint8_t *buffer, size_t size)
 {
 	char *p = opstr;
 	int len;
 	size_t i;
-	size_t available = sizeof(((cs_insn*)NULL)->op_str);
 
 	if (!size) {
 		opstr[0] = '\0';
 		return;
 	}
 
-	len = cs_snprintf(p, available, "0x%02x", buffer[0]);
+	len = sprintf(p, "0x%02x", buffer[0]);
 	p+= len;
-	available -= len;
 
 	for(i = 1; i < size; i++) {
-		len = cs_snprintf(p, available, ", 0x%02x", buffer[i]);
-		if (len < 0) {
-			break;
-		}
-		if ((size_t)len > available - 1) {
-			break;
-		}
+		len = sprintf(p, ", 0x%02x", buffer[i]);
 		p+= len;
-		available -= len;
 	}
 }
-#endif
 
 // dynamicly allocate memory to contain disasm insn
 // NOTE: caller must free() the allocated memory itself to avoid memory leaking
 CAPSTONE_EXPORT
-size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64_t offset, size_t count, cs_insn **insn)
+size_t cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64_t offset, size_t count, cs_insn **insn)
 {
 	struct cs_struct *handle;
 	MCInst mci;
@@ -644,10 +439,6 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 	}
 
 	handle->errnum = CS_ERR_OK;
-
-	// reset IT block of ARM structure
-	if (handle->arch == CS_ARCH_ARM)
-		handle->ITBlock.size = 0;
 
 #ifdef CAPSTONE_USE_SYS_DYN_MEM
 	if (count > 0 && count <= INSN_CACHE_SIZE)
@@ -700,7 +491,6 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 			mci.flat_insn->size = insn_size;
 
 			// map internal instruction opcode to public insn ID
-
 			handle->insn_id(handle, insn_cache, mci.Opcode);
 
 			handle->printer(&mci, &ss, handle->printer_info);
@@ -739,14 +529,9 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 			insn_cache->address = offset;
 			insn_cache->size = (uint16_t)skipdata_bytes;
 			memcpy(insn_cache->bytes, buffer, skipdata_bytes);
-#ifdef CAPSTONE_DIET
- 			insn_cache->mnemonic[0] = '\0';
-			insn_cache->op_str[0] = '\0';
-#else
 			strncpy(insn_cache->mnemonic, handle->skipdata_setup.mnemonic,
-  					sizeof(insn_cache->mnemonic) - 1);
-  			skipdata_opstr(insn_cache->op_str, buffer, skipdata_bytes);
-#endif
+					sizeof(insn_cache->mnemonic) - 1);
+			skipdata_opstr(insn_cache->op_str, buffer, skipdata_bytes);
 			insn_cache->detail = NULL;
 
 			next_offset = skipdata_bytes;
@@ -799,7 +584,7 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 		total = NULL;
 	} else if (f != cache_size) {
 		// total did not fully use the last cache, so downsize it
-		tmp = cs_mem_realloc(total, total_size - (cache_size - f) * sizeof(*insn_cache));
+		void *tmp = cs_mem_realloc(total, total_size - (cache_size - f) * sizeof(*insn_cache));
 		if (tmp == NULL) {	// insufficient memory
 			// free all detail pointers
 			if (handle->detail) {
@@ -825,13 +610,13 @@ size_t CAPSTONE_API cs_disasm(csh ud, const uint8_t *buffer, size_t size, uint64
 
 CAPSTONE_EXPORT
 CAPSTONE_DEPRECATED
-size_t CAPSTONE_API cs_disasm_ex(csh ud, const uint8_t *buffer, size_t size, uint64_t offset, size_t count, cs_insn **insn)
+size_t cs_disasm_ex(csh ud, const uint8_t *buffer, size_t size, uint64_t offset, size_t count, cs_insn **insn)
 {
 	return cs_disasm(ud, buffer, size, offset, count, insn);
 }
 
 CAPSTONE_EXPORT
-void CAPSTONE_API cs_free(cs_insn *insn, size_t count)
+void cs_free(cs_insn *insn, size_t count)
 {
 	size_t i;
 
@@ -844,7 +629,7 @@ void CAPSTONE_API cs_free(cs_insn *insn, size_t count)
 }
 
 CAPSTONE_EXPORT
-cs_insn * CAPSTONE_API cs_malloc(csh ud)
+cs_insn *cs_malloc(csh ud)
 {
 	cs_insn *insn;
 	struct cs_struct *handle = (struct cs_struct *)(uintptr_t)ud;
@@ -872,7 +657,7 @@ cs_insn * CAPSTONE_API cs_malloc(csh ud)
 
 // iterator for instruction "single-stepping"
 CAPSTONE_EXPORT
-bool CAPSTONE_API cs_disasm_iter(csh ud, const uint8_t **code, size_t *size,
+bool cs_disasm_iter(csh ud, const uint8_t **code, size_t *size,
 		uint64_t *address, cs_insn *insn)
 {
 	struct cs_struct *handle;
@@ -945,14 +730,9 @@ bool CAPSTONE_API cs_disasm_iter(csh ud, const uint8_t **code, size_t *size,
 		insn->address = *address;
 		insn->size = (uint16_t)skipdata_bytes;
 		memcpy(insn->bytes, *code, skipdata_bytes);
-#ifdef CAPSTONE_DIET
-		insn->mnemonic[0] = '\0';
-		insn->op_str[0] = '\0';
-#else
 		strncpy(insn->mnemonic, handle->skipdata_setup.mnemonic,
 				sizeof(insn->mnemonic) - 1);
 		skipdata_opstr(insn->op_str, *code, skipdata_bytes);
-#endif
 
 		*code += skipdata_bytes;
 		*size -= skipdata_bytes;
@@ -964,7 +744,7 @@ bool CAPSTONE_API cs_disasm_iter(csh ud, const uint8_t **code, size_t *size,
 
 // return friendly name of regiser in a string
 CAPSTONE_EXPORT
-const char * CAPSTONE_API cs_reg_name(csh ud, unsigned int reg)
+const char *cs_reg_name(csh ud, unsigned int reg)
 {
 	struct cs_struct *handle = (struct cs_struct *)(uintptr_t)ud;
 
@@ -976,7 +756,7 @@ const char * CAPSTONE_API cs_reg_name(csh ud, unsigned int reg)
 }
 
 CAPSTONE_EXPORT
-const char * CAPSTONE_API cs_insn_name(csh ud, unsigned int insn)
+const char *cs_insn_name(csh ud, unsigned int insn)
 {
 	struct cs_struct *handle = (struct cs_struct *)(uintptr_t)ud;
 
@@ -988,7 +768,7 @@ const char * CAPSTONE_API cs_insn_name(csh ud, unsigned int insn)
 }
 
 CAPSTONE_EXPORT
-const char * CAPSTONE_API cs_group_name(csh ud, unsigned int group)
+const char *cs_group_name(csh ud, unsigned int group)
 {
 	struct cs_struct *handle = (struct cs_struct *)(uintptr_t)ud;
 
@@ -1012,7 +792,7 @@ static bool arr_exist(unsigned char *arr, unsigned char max, unsigned int id)
 }
 
 CAPSTONE_EXPORT
-bool CAPSTONE_API cs_insn_group(csh ud, const cs_insn *insn, unsigned int group_id)
+bool cs_insn_group(csh ud, const cs_insn *insn, unsigned int group_id)
 {
 	struct cs_struct *handle;
 	if (!ud)
@@ -1039,7 +819,7 @@ bool CAPSTONE_API cs_insn_group(csh ud, const cs_insn *insn, unsigned int group_
 }
 
 CAPSTONE_EXPORT
-bool CAPSTONE_API cs_reg_read(csh ud, const cs_insn *insn, unsigned int reg_id)
+bool cs_reg_read(csh ud, const cs_insn *insn, unsigned int reg_id)
 {
 	struct cs_struct *handle;
 	if (!ud)
@@ -1066,7 +846,7 @@ bool CAPSTONE_API cs_reg_read(csh ud, const cs_insn *insn, unsigned int reg_id)
 }
 
 CAPSTONE_EXPORT
-bool CAPSTONE_API cs_reg_write(csh ud, const cs_insn *insn, unsigned int reg_id)
+bool cs_reg_write(csh ud, const cs_insn *insn, unsigned int reg_id)
 {
 	struct cs_struct *handle;
 	if (!ud)
@@ -1093,7 +873,7 @@ bool CAPSTONE_API cs_reg_write(csh ud, const cs_insn *insn, unsigned int reg_id)
 }
 
 CAPSTONE_EXPORT
-int CAPSTONE_API cs_op_count(csh ud, const cs_insn *insn, unsigned int op_type)
+int cs_op_count(csh ud, const cs_insn *insn, unsigned int op_type)
 {
 	struct cs_struct *handle;
 	unsigned int count = 0, i;
@@ -1169,7 +949,7 @@ int CAPSTONE_API cs_op_count(csh ud, const cs_insn *insn, unsigned int op_type)
 }
 
 CAPSTONE_EXPORT
-int CAPSTONE_API cs_op_index(csh ud, const cs_insn *insn, unsigned int op_type,
+int cs_op_index(csh ud, const cs_insn *insn, unsigned int op_type,
 		unsigned int post)
 {
 	struct cs_struct *handle;

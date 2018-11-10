@@ -1,7 +1,6 @@
 # Capstone Python bindings, by Nguyen Anh Quynnh <aquynh@gmail.com>
 
-import ctypes
-from . import copy_ctypes, copy_ctypes_list
+import ctypes, copy
 from .x86_const import *
 
 # define the API
@@ -47,14 +46,6 @@ class X86Op(ctypes.Structure):
     def mem(self):
         return self.value.mem
 
-class CsX86Encoding(ctypes.Structure):
-    _fields_ = (
-        ('modrm_offset', ctypes.c_uint8),
-        ('disp_offset', ctypes.c_uint8),
-        ('disp_size', ctypes.c_uint8),
-        ('imm_offset', ctypes.c_uint8),
-        ('imm_size', ctypes.c_uint8),
-    )
 
 class CsX86(ctypes.Structure):
     _fields_ = (
@@ -74,14 +65,11 @@ class CsX86(ctypes.Structure):
         ('avx_rm', ctypes.c_uint),
         ('op_count', ctypes.c_uint8),
         ('operands', X86Op * 8),
-        ('encoding', CsX86Encoding),
     )
 
 def get_arch_info(a):
     return (a.prefix[:], a.opcode[:], a.rex, a.addr_size, \
             a.modrm, a.sib, a.disp, a.sib_index, a.sib_scale, \
             a.sib_base, a.sse_cc, a.avx_cc, a.avx_sae, a.avx_rm, \
-            a.encoding.modrm_offset, a.encoding.disp_offset, a.encoding.disp_size, \
-            a.encoding.imm_offset, a.encoding.imm_size, \
-            copy_ctypes_list(a.operands[:a.op_count]))
+            copy.deepcopy(a.operands[:a.op_count]))
 

@@ -8,14 +8,10 @@
 extern "C" {
 #endif
 
-#if !defined(_MSC_VER) || !defined(_KERNEL_MODE)
 #include <stdint.h>
-#endif
 
 // Calculate relative address for X86-64, given cs_insn structure
-#define X86_REL_ADDR(insn) (((insn).detail->x86.operands[0].type == X86_OP_IMM) \
-	? (uint64_t)((insn).detail->x86.operands[0].imm) \
-	: (((insn).address + (insn).size) + (uint64_t)(insn).detail->x86.disp))
+#define X86_REL_ADDR(insn) (insn.address + insn.size + insn.detail->x86.disp)
 
 //> X86 registers
 typedef enum x86_reg {
@@ -203,18 +199,15 @@ typedef struct cs_x86_op {
 		bool avx_zero_opmask;
 } cs_x86_op;
 
-typedef struct cs_x86_encoding {
-	// ModR/M offset, or 0 when irrelevant
-	uint8_t modrm_offset;
+typedef struct x86Offsets {
+	uint8_t displacement_offset; //Offset from Instruction->address
+	uint8_t displacement_size;   //1,2,4,8
 
-	// Displacement offset, or 0 when irrelevant.
-	uint8_t disp_offset;
-	uint8_t disp_size;
+	uint8_t modrm_offset; // ModR/M offset, or 0 when irrelevant.
 
-	// Immediate offset, or 0 when irrelevant.
-	uint8_t imm_offset;
-	uint8_t imm_size;
-} cs_x86_encoding;
+	uint8_t imm_offset; //Offset of imm value from Instruction->address
+	uint8_t imm_size; //size of imm value
+}x86Offsets;
 
 // Instruction structure
 typedef struct cs_x86 {
@@ -227,15 +220,15 @@ typedef struct cs_x86 {
 	// prefix[3] indicates address-size override (X86_PREFIX_ADDRSIZE)
 	uint8_t prefix[4];
 
-	// Instruction opcode, which can be from 1 to 4 bytes in size.
+	// Instruction opcode, wich can be from 1 to 4 bytes in size.
 	// This contains VEX opcode as well.
 	// An trailing opcode byte gets value 0 when irrelevant.
 	uint8_t opcode[4];
 
-	// REX prefix: only a non-zero value is relevant for x86_64
+	// REX prefix: only a non-zero value is relavant for x86_64
 	uint8_t rex;
 
-	// Address size, which can be overridden with above prefix[5].
+	// Address size, which can be overrided with above prefix[5].
 	uint8_t addr_size;
 
 	// ModR/M byte
@@ -250,7 +243,7 @@ typedef struct cs_x86 {
 	/* SIB state */
 	// SIB index register, or X86_REG_INVALID when irrelevant.
 	x86_reg sib_index;
-	// SIB scale. only applicable if sib_index is relevant.
+	// SIB scale. only applicable if sib_index is relavant.
 	int8_t sib_scale;
 	// SIB base register, or X86_REG_INVALID when irrelevant.
 	x86_reg sib_base;
@@ -272,8 +265,7 @@ typedef struct cs_x86 {
 	uint8_t op_count;
 
 	cs_x86_op operands[8];	// operands for this instruction.
-
-	cs_x86_encoding encoding; // encoding information
+	x86Offsets offsets;
 } cs_x86;
 
 //> X86 instructions

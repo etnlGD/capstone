@@ -77,9 +77,7 @@
 #ifndef CS_X86_DISASSEMBLER_H
 #define CS_X86_DISASSEMBLER_H
 
-#if !defined(_MSC_VER) || !defined(_KERNEL_MODE)
 #include <stdint.h>
-#endif
 
 #include "../../include/capstone.h"
 

@@ -24,11 +24,11 @@
 #else
 #include <stdio.h>
 #endif
-#if !defined(_MSC_VER) || !defined(_KERNEL_MODE)
 #include <stdint.h>
-#endif
 
 #include "X86DisassemblerDecoderCommon.h"
+
+#include <stdint.h>
 
 /*
  * Accessor functions for various fields of an Intel instruction
@@ -553,31 +553,9 @@ struct InstructionSpecifier {
 typedef struct InternalInstruction {
   // from here, all members must be initialized to ZERO to work properly
   uint8_t operandSize;
+  /* 1 if the prefix byte corresponding to the entry is present; 0 if not */
+  uint8_t prefixPresent[0x100];
   uint8_t prefix0, prefix1, prefix2, prefix3;
-  /* true if the prefix byte corresponding to the entry is present; false if not */
-  bool isPrefix26;
-  bool isPrefix2e;
-  bool isPrefix36;
-  bool isPrefix3e;
-  bool isPrefix64;
-  bool isPrefix65;
-  bool isPrefix66;
-  bool isPrefix67;
-  bool isPrefixf0;
-  bool isPrefixf2;
-  bool isPrefixf3;
-  /* contains the location (for use with the reader) of the prefix byte */
-  uint64_t prefix26;
-  uint64_t prefix2e;
-  uint64_t prefix36;
-  uint64_t prefix3e;
-  uint64_t prefix64;
-  uint64_t prefix65;
-  uint64_t prefix66;
-  uint64_t prefix67;
-  uint64_t prefixf0;
-  uint64_t prefixf2;
-  uint64_t prefixf3;
   /* The value of the REX prefix, if present */
   uint8_t rexPrefix;
   /* The segment override type */
@@ -589,7 +567,7 @@ typedef struct InternalInstruction {
   uint8_t                       sib;
   /* The displacement, used for memory operands */
   bool                          consumedDisplacement;
-  int64_t                       displacement;
+  int32_t                       displacement;
   /* The value of the two-byte escape prefix (usually 0x0f) */
   uint8_t twoByteEscape;
   /* The value of the three-byte escape prefix (usually 0x38 or 0x3a) */
@@ -599,22 +577,19 @@ typedef struct InternalInstruction {
   uint8_t                       sibScale;
   SIBBase                       sibBase;
   uint8_t                       numImmediatesConsumed;
-  /* true if the prefix byte, 0xf2 or 0xf3 is xacquire or xrelease */
+  /* 1 if the prefix byte, 0xf2 or 0xf3 is xacquire or xrelease */
   bool xAcquireRelease;
+
+  /* contains the location (for use with the reader) of the prefix byte */
+  uint64_t prefixLocations[0x100];
 
   /* The value of the vector extension prefix(EVEX/VEX/XOP), if present */
   uint8_t vectorExtensionPrefix[4];
-
-  /* Offsets from the start of the instruction to the pieces of data, which is
-     needed to find relocation entries for adding symbolic operands */
-  uint8_t displacementOffset;
-  uint8_t immediateOffset;
 
   // end-of-zero-members
 
   /* Reader interface (C) */
   byteReader_t reader;
-
   /* Opaque value passed to the reader */
   const void* readerArg;
   /* The address of the next byte to read via the reader */
@@ -651,6 +626,11 @@ typedef struct InternalInstruction {
 
   uint8_t immSize;	// immediate size for X86_OP_IMM operand
 
+  /* Offsets from the start of the instruction to the pieces of data, which is
+     needed to find relocation entries for adding symbolic operands */
+  uint8_t displacementOffset;
+  uint8_t immediateOffset;
+
   /* opcode state */
 
   /* The last byte of the opcode, not counting any ModR/M extension */
@@ -679,7 +659,6 @@ typedef struct InternalInstruction {
   /* The ModR/M byte, which contains most register operands and some portion of
      all memory operands */
   uint8_t                       modRM;
-
   /* contains the location (for use with the reader) of the modRM byte */
   uint64_t                      modRMLocation;
 

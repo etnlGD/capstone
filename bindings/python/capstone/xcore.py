@@ -1,7 +1,6 @@
 # Capstone Python bindings, by Nguyen Anh Quynnh <aquynh@gmail.com>
 
-import ctypes
-from . import copy_ctypes_list
+import ctypes, copy
 from .xcore_const import *
 
 # define the API
@@ -46,5 +45,5 @@ class CsXcore(ctypes.Structure):
     )
 
 def get_arch_info(a):
-    return (copy_ctypes_list(a.operands[:a.op_count]))
+    return (copy.deepcopy(a.operands[:a.op_count]))
 

@@ -2,15 +2,15 @@
 /* By David Hogarty, 2014 */
 
 // the following must precede stdio (woo, thanks msft)
-#if defined(_MSC_VER) && _MSC_VER < 1900
+#ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
 #define snprintf _snprintf
 #endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../myinttypes.h"
 
-#include <platform.h>
 #include <capstone.h>
 
 static csh handle;

@@ -342,11 +342,11 @@ static DecodeStatus getInstruction(MCInst *MI,
 	}
 
 	// The instruction is big-endian encoded.
-	if (MODE_IS_BIG_ENDIAN(MI->csh->mode))
-		insn = (((uint32_t) code[0]) << 24) | (code[1] << 16) |
+	if (MI->csh->mode & CS_MODE_BIG_ENDIAN)
+		insn = (code[0] << 24) | (code[1] << 16) |
 			(code[2] <<  8) | (code[3] <<  0);
 	else
-		insn = (((uint32_t) code[3]) << 24) | (code[2] << 16) |
+		insn = (code[3] << 24) | (code[2] << 16) |
 			(code[1] <<  8) | (code[0] <<  0);
 
 	if (MI->flat_insn->detail) {

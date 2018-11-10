@@ -216,7 +216,7 @@ static DecodeStatus readInstruction32(const uint8_t *code, size_t len, uint32_t 
 	*Insn = (Bytes[3] <<  0) |
 		(Bytes[2] <<  8) |
 		(Bytes[1] << 16) |
-		(((uint32_t) Bytes[0]) << 24);
+		(Bytes[0] << 24);
 
 	return MCDisassembler_Success;
 }
@@ -255,7 +255,7 @@ static DecodeStatus DecodeMem(MCInst *MI, unsigned insn, uint64_t Address,
 	DecodeStatus status;
 	unsigned rd = fieldFromInstruction_4(insn, 25, 5);
 	unsigned rs1 = fieldFromInstruction_4(insn, 14, 5);
-	bool isImm = fieldFromInstruction_4(insn, 13, 1) != 0;
+	bool isImm = fieldFromInstruction_4(insn, 13, 1);
 	unsigned rs2 = 0;
 	unsigned simm13 = 0;
 

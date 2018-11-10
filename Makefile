@@ -8,12 +8,6 @@ include functions.mk
 # Verbose output?
 V ?= 0
 
-OS := $(shell uname)
-ifeq ($(OS),Darwin)
-LIBARCHS = i386 x86_64
-PREFIX ?= /usr/local
-endif
-
 ifeq ($(PKG_EXTRA),)
 PKG_VERSION = $(PKG_MAJOR).$(PKG_MINOR)
 else
@@ -21,7 +15,10 @@ PKG_VERSION = $(PKG_MAJOR).$(PKG_MINOR).$(PKG_EXTRA)
 endif
 
 ifeq ($(CROSS),)
+CC ?= cc
+AR ?= ar
 RANLIB ?= ranlib
+STRIP ?= strip
 else
 CC = $(CROSS)gcc
 AR = $(CROSS)ar
@@ -40,7 +37,7 @@ ifneq (,$(findstring yes,$(CAPSTONE_X86_ATT_DISABLE)))
 CFLAGS += -DCAPSTONE_X86_ATT_DISABLE
 endif
 
-CFLAGS += -fPIC -Wall -Wwrite-strings -Iinclude
+CFLAGS += -fPIC -Wall -Iinclude
 
 ifeq ($(CAPSTONE_USE_SYS_DYN_MEM),yes)
 CFLAGS += -DCAPSTONE_USE_SYS_DYN_MEM
@@ -48,13 +45,10 @@ endif
 
 ifeq ($(CAPSTONE_HAS_OSXKERNEL), yes)
 CFLAGS += -DCAPSTONE_HAS_OSXKERNEL
-SDKROOT ?= $(shell xcodebuild -version -sdk macosx Path)
-CFLAGS += -mmacosx-version-min=10.5 \
-		  -isysroot$(SDKROOT) \
-		  -I$(SDKROOT)/System/Library/Frameworks/Kernel.framework/Headers \
-		  -mkernel \
-		  -fno-builtin
 endif
+
+CFLAGS += $(foreach arch,$(LIBARCHS),-arch $(arch))
+LDFLAGS += $(foreach arch,$(LIBARCHS),-arch $(arch))
 
 PREFIX ?= /usr
 DESTDIR ?=
@@ -74,7 +68,6 @@ LIBDIRARCH ?= lib
 # Or better, pass 'LIBDIRARCH=lib64' to 'make install/uninstall' via 'make.sh'.
 #LIBDIRARCH ?= lib64
 LIBDIR = $(DESTDIR)$(PREFIX)/$(LIBDIRARCH)
-BINDIR = $(DESTDIR)$(PREFIX)/bin
 
 LIBDATADIR = $(LIBDIR)
 
@@ -257,14 +250,8 @@ PKGCFGDIR ?= $(LIBDATADIR)/pkgconfig
 API_MAJOR=$(shell echo `grep -e CS_API_MAJOR include/capstone.h | grep -v = | awk '{print $$3}'` | awk '{print $$1}')
 VERSION_EXT =
 
-IS_APPLE := $(shell $(CC) -dM -E - < /dev/null | grep -cm 1 -e __apple_build_version__ -e __APPLE_CC__)
+IS_APPLE := $(shell $(CC) -dM -E - < /dev/null | grep __apple_build_version__ | wc -l | tr -d " ")
 ifeq ($(IS_APPLE),1)
-# on MacOS, compile in Universal format by default
-MACOS_UNIVERSAL ?= yes
-ifeq ($(MACOS_UNIVERSAL),yes)
-CFLAGS += $(foreach arch,$(LIBARCHS),-arch $(arch))
-LDFLAGS += $(foreach arch,$(LIBARCHS),-arch $(arch))
-endif
 EXT = dylib
 VERSION_EXT = $(API_MAJOR).$(EXT)
 $(LIBNAME)_LDFLAGS += -dynamiclib -install_name lib$(LIBNAME).$(VERSION_EXT) -current_version $(PKG_MAJOR).$(PKG_MINOR).$(PKG_EXTRA) -compatibility_version $(PKG_MAJOR).$(PKG_MINOR)
@@ -278,8 +265,6 @@ CFLAGS += -D_FORTIFY_SOURCE=0
 endif
 endif
 else
-CFLAGS += $(foreach arch,$(LIBARCHS),-arch $(arch))
-LDFLAGS += $(foreach arch,$(LIBARCHS),-arch $(arch))
 $(LIBNAME)_LDFLAGS += -shared
 # Cygwin?
 IS_CYGWIN := $(shell $(CC) -dumpmachine | grep -i cygwin | wc -l)
@@ -335,13 +320,14 @@ PKGCFGF = $(BLDIR)/$(LIBNAME).pc
 
 all: $(LIBRARY) $(ARCHIVE) $(PKGCFGF)
 ifeq (,$(findstring yes,$(CAPSTONE_BUILD_CORE_ONLY)))
-	@V=$(V) CC=$(CC) $(MAKE) -C cstool
 ifndef BUILDDIR
-	$(MAKE) -C tests
+	cd tests && $(MAKE)
 else
-	$(MAKE) -C tests BUILDDIR=$(BLDIR)
+	cd tests && $(MAKE) BUILDDIR=$(BLDIR)
 endif
-	$(call install-library,$(BLDIR)/tests/)
+ifeq ($(CAPSTONE_SHARED),yes)
+	$(INSTALL_DATA) $(LIBRARY) $(BLDIR)/tests/
+endif
 endif
 
 ifeq ($(CAPSTONE_SHARED),yes)
@@ -354,7 +340,7 @@ else
 endif
 endif
 
-$(LIBOBJ): *.h include/*.h config.mk
+$(LIBOBJ): config.mk
 
 $(LIBOBJ_ARM): $(DEP_ARM)
 $(LIBOBJ_ARM64): $(DEP_ARM64)
@@ -386,7 +372,14 @@ endif
 
 install: $(PKGCFGF) $(ARCHIVE) $(LIBRARY)
 	mkdir -p $(LIBDIR)
-	$(call install-library,$(LIBDIR))
+ifeq ($(CAPSTONE_SHARED),yes)
+	$(INSTALL_LIB) $(LIBRARY) $(LIBDIR)
+ifneq ($(VERSION_EXT),)
+	cd $(LIBDIR) && \
+	mv lib$(LIBNAME).$(EXT) lib$(LIBNAME).$(VERSION_EXT) && \
+	ln -s lib$(LIBNAME).$(VERSION_EXT) lib$(LIBNAME).$(EXT)
+endif
+endif
 ifeq ($(CAPSTONE_STATIC),yes)
 	$(INSTALL_DATA) $(ARCHIVE) $(LIBDIR)
 endif
@@ -394,23 +387,19 @@ endif
 	$(INSTALL_DATA) include/*.h $(INCDIR)/$(LIBNAME)
 	mkdir -p $(PKGCFGDIR)
 	$(INSTALL_DATA) $(PKGCFGF) $(PKGCFGDIR)/
-	mkdir -p $(BINDIR)
-	$(INSTALL_LIB) cstool/cstool $(BINDIR)
 
 uninstall:
 	rm -rf $(INCDIR)/$(LIBNAME)
 	rm -f $(LIBDIR)/lib$(LIBNAME).*
 	rm -f $(PKGCFGDIR)/$(LIBNAME).pc
-	rm -f $(BINDIR)/cstool
 
 clean:
 	rm -f $(LIBOBJ)
-	rm -f $(BLDIR)/lib$(LIBNAME).* $(BLDIR)/$(LIBNAME).pc
+	rm -f $(BLDIR)/lib$(LIBNAME).* $(BLDIR)/$(LIBNAME).*
 	rm -f $(PKGCFGF)
-	$(MAKE) -C cstool clean
 
 ifeq (,$(findstring yes,$(CAPSTONE_BUILD_CORE_ONLY)))
-	$(MAKE) -C tests clean
+	cd tests && $(MAKE) clean
 	rm -f $(BLDIR)/tests/lib$(LIBNAME).$(EXT)
 endif
 
@@ -419,9 +408,9 @@ ifdef BUILDDIR
 endif
 
 ifeq (,$(findstring yes,$(CAPSTONE_BUILD_CORE_ONLY)))
-	$(MAKE) -C bindings/python clean
-	$(MAKE) -C bindings/java clean
-	$(MAKE) -C bindings/ocaml clean
+	cd bindings/python && $(MAKE) clean
+	cd bindings/java && $(MAKE) clean
+	cd bindings/ocaml && $(MAKE) clean
 endif
 
 
@@ -437,15 +426,17 @@ dist:
 	git archive --format=zip --prefix=capstone-$(DIST_VERSION)/ $(TAG) > capstone-$(DIST_VERSION).zip
 
 
-TESTS = test_basic test_detail test_arm test_arm64 test_mips test_ppc test_sparc
+TESTS = test test_detail test_arm test_arm64 test_mips test_ppc test_sparc
 TESTS += test_systemz test_x86 test_xcore test_iter
-TESTS += test_basic.static test_detail.static test_arm.static test_arm64.static
+TESTS += test.static test_detail.static test_arm.static test_arm64.static
 TESTS += test_mips.static test_ppc.static test_sparc.static
 TESTS += test_systemz.static test_x86.static test_xcore.static
 TESTS += test_skipdata test_skipdata.static test_iter.static
-check: $(TESTS)
-test_%:
-	./tests/$@ > /dev/null && echo OK || echo FAILED
+check:
+	@for t in $(TESTS); do \
+		echo Check $$t ... ; \
+		./tests/$$t > /dev/null && echo OK || echo FAILED; \
+	done
 
 $(OBJDIR)/%.o: %.c
 	@mkdir -p $(@D)
@@ -454,20 +445,6 @@ ifeq ($(V),0)
 	@$(compile)
 else
 	$(compile)
-endif
-
-
-ifeq ($(CAPSTONE_SHARED),yes)
-define install-library
-	$(INSTALL_LIB) $(LIBRARY) $1
-	$(if $(VERSION_EXT),
-		cd $1 && \
-		mv lib$(LIBNAME).$(EXT) lib$(LIBNAME).$(VERSION_EXT) && \
-		ln -s lib$(LIBNAME).$(VERSION_EXT) lib$(LIBNAME).$(EXT))
-endef
-else
-define install-library
-endef
 endif
 
 

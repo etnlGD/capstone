@@ -2,7 +2,6 @@
 /* By Nguyen Anh Quynh <aquynh@gmail.com>, 2013-2014 */
 
 #if defined(CAPSTONE_HAS_OSXKERNEL)
-#include <Availability.h>
 #include <libkern/libkern.h>
 #else
 #include <stdio.h>
@@ -17,13 +16,6 @@
 
 void MCInst_Init(MCInst *inst)
 {
-	unsigned int i;
-
-	for (i = 0; i < 48; i++) {
-		inst->Operands[i].Kind = kInvalid;
-	}
-
-	inst->Opcode = 0;
 	inst->OpcodePub = 0;
 	inst->size = 0;
 	inst->has_imm = false;

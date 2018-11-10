@@ -1,65 +1,106 @@
-To install Capstone, you should run `pip install capstone`.
+0. This documentation explains how to install Python binding for Capstone
+   from source. If you want to install it from PyPi package, see the below
+   docs instead:
 
-If you would like to build Capstone with just the source distribution, without
-pip, just run `python setup.py install` in the folder with setup.py in it.
+   - README.pypi-src: How to compile the Capstone core & install binding
+     at the same time from PyPi package "capstone"
 
-In order to use this source distribution, you will need an environment that can
-compile C code. On Linux, this is usually easy, but on Windows, this involves
-installing Visual Studio and using the "Developer Command Prompt" to perform the
-installation. See BUILDING.txt for more information.
+   - README.pypi-win: How to install binding for Windows from PyPi package
+     "capstone-windows". Note that this package already has prebuilt core
+     inside, so no compilation is needed.
 
-By default, attempting to install the python bindings will trigger a build of
-the capstone native core. If this is undesirable for whatever reason, for
-instance, you already have a globally installed copy of libcapstone, you may
-inhibit the build by setting the environment variable LIBCAPSTONE_PATH. The
-exact value is not checked, just setting it will inhibit the build. During
-execution, this variable may be set to the path of a directory containing a
-specific version of libcapstone you would like to use.
+1. To install pure Python binding on *nix, run the command below:
 
-If you don't want to build your own copy of Capstone, you can use a precompiled
-binary distribution from PyPI. Saying `pip install capstone` should
-automatically obtain an appropriate copy for your system. If it does not, please
-open an issue at https://github.com/aquynh/capstone and tag @rhelmot - she
-will fix this, probably!
+		$ sudo make install
 
---------------------------------------------------------------------------------
+   To install Python3 binding package, run the command below:
+   (Note: this requires python3 installed in your machine)
 
-Capstone is a disassembly framework with the target of becoming the ultimate
-disasm engine for binary analysis and reversing in the security community.
+		$ sudo make install3
 
-Created by Nguyen Anh Quynh, then developed and maintained by a small community,
-Capstone offers some unparalleled features:
+2. For better Python performance, install cython-based binding with:
 
-- Support multiple hardware architectures: ARM, ARM64 (ARMv8), Mips, PPC, Sparc,
-  SystemZ, XCore and X86 (including X86_64).
+		$ sudo make install_cython
 
-- Having clean/simple/lightweight/intuitive architecture-neutral API.
+	Note that this requires cython installed in your machine first.
+	To install cython, see section 3 below.
+	
+3. To install cython, you have to ensure that the header files
+   and the static library for Python are installed beforehand.
 
-- Provide details on disassembled instruction (called “decomposer” by others).
+	E.g. on Ubuntu, do:
 
-- Provide semantics of the disassembled instruction, such as list of implicit
-  registers read & written.
+		$ sudo apt-get install python-dev
 
-- Implemented in pure C language, with lightweight wrappers for C++, C#, Go,
-  Java, NodeJS, Ocaml, Python, Ruby & Vala ready (available in main code,
-  or provided externally by the community).
+	Depending on if you already have pip or easy_install
+	installed, install cython with either:
 
-- Native support for all popular platforms: Windows, Mac OSX, iOS, Android,
-  Linux, *BSD, Solaris, etc.
+		$ sudo pip install cython
+	or:
+		$ sudo easy_install cython
 
-- Thread-safe by design.
+	NOTE: Depending on your distribution you might also be able to
+	      install the required cython version using your repository.
 
-- Special support for embedding into firmware or OS kernel.
+	E.g. on Ubuntu, do:
+	
+		$ sudo apt-get install cython
 
-- High performance & suitable for malware analysis (capable of handling various
-  X86 malware tricks).
+	However, our cython-based binding requires cython version 0.19 or newer,
+	but sometimes distributions only provide older version. Make sure to
+	verify the current installed version before going into section 2 above.
+	
+	E.g, on Ubuntu, you can verify the current cython version with:
 
-- Distributed under the open source BSD license.
+		$ apt-cache policy cython
 
-Further information is available at http://www.capstone-engine.org
+	Which should at least print version 0.19
 
 
-[License]
+This directory contains some test code to show how to use Capstone API.
 
-This project is released under the BSD license. If you redistribute the binary
-or source code of Capstone, please attach file LICENSE.TXT with your products.
+- test.py
+  This code shows the most simple form of API where we only want to get basic
+  information out of disassembled instruction, such as address, mnemonic and
+  operand string.
+
+- test_lite.py
+  Similarly to test.py, but this code shows how to use disasm_lite(), a lighter
+  method to disassemble binary. Unlike disasm() API (used by test.py), which returns
+  CsInsn objects, this API just returns tuples of (address, size, mnemonic, op_str).
+
+  The main reason for using this API is better performance: disasm_lite() is at least
+  20% faster than disasm(). Memory usage is also less. So if you just need basic
+  information out of disassembler, use disasm_lite() instead of disasm().
+
+- test_detail.py:
+  This code shows how to access to architecture-neutral information in disassembled
+  instructions, such as implicit registers read/written, or groups of instructions
+  that this instruction belong to.
+
+- test_<arch>.py
+  These code show how to access architecture-specific information for each
+  architecture.
+
+
+2. To install Python binding on Windows:
+
+Recommended method:
+
+	Use the Python module installer for 32/64 bit Windows from:
+
+		http://www.capstone-engine.org/download.html
+
+
+Manual method:
+
+	If the module installer fails to locate your Python install, or if you have
+	additional Python installs (e.g. Anaconda / virtualenv), run the following
+	command in command prompt:
+
+		C:\> C:\location_to_python\python.exe setup.py install
+
+	Next, copy capstone.dll from the 'Core engine for Windows' package available
+	on the same Capstone download page and paste it in the path:
+
+		C:\location_to_python\Lib\site-packages\capstone\

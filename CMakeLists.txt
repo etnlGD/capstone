@@ -3,7 +3,7 @@ project(capstone)
 
 set(VERSION_MAJOR 3)
 set(VERSION_MINOR 0)
-set(VERSION_PATCH 5)
+set(VERSION_PATCH 4)
 
 # to configure the options specify them in in the command line or change them in the cmake UI.
 # Don't edit the makefile!
@@ -12,7 +12,6 @@ option(CAPSTONE_BUILD_STATIC "Build static library" ON)
 option(CAPSTONE_BUILD_SHARED "Build shared library" ON)
 option(CAPSTONE_BUILD_DIET "Build diet library" OFF)
 option(CAPSTONE_BUILD_TESTS "Build tests" ON)
-option(CAPSTONE_BUILD_CSTOOL "Build cstool" ON)
 option(CAPSTONE_USE_DEFAULT_ALLOC "Use default memory allocation functions" ON)
 
 option(CAPSTONE_ARM_SUPPORT "ARM support" ON)
@@ -26,11 +25,6 @@ option(CAPSTONE_X86_SUPPORT "x86 support" ON)
 option(CAPSTONE_X86_REDUCE "x86 with reduce instruction sets to minimize library" OFF)
 option(CAPSTONE_X86_ATT_DISABLE "Disable x86 AT&T syntax" OFF)
 option(CAPSTONE_OSXKERNEL_SUPPORT "Support to embed Capstone into OS X Kernel extensions" OFF)
-
-if (MSVC)
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd")
-endif ()
 
 if (CAPSTONE_BUILD_DIET)
     add_definitions(-DCAPSTONE_DIET)
@@ -66,6 +60,7 @@ set(HEADERS_ENGINE
     MCInstrDesc.h
     SStream.h
     cs_priv.h
+    myinttypes.h
     include/platform.h
     )
 
@@ -83,7 +78,7 @@ set(HEADERS_COMMON
     )
 
 
-set(TEST_SOURCES test_basic.c test_detail.c test_skipdata.c test_iter.c)
+set(TEST_SOURCES test.c test_detail.c test_skipdata.c test_iter.c)
 
 ## architecture support
 if (CAPSTONE_ARM_SUPPORT)
@@ -307,6 +302,7 @@ include_directories("${PROJECT_SOURCE_DIR}/include")
 ## properties
 # version info
 set_property(GLOBAL PROPERTY VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
+set_property(GLOBAL PROPERTY SOVERSION SOVERSION ${VERSION_MAJOR})
 
 ## targets
 if (CAPSTONE_BUILD_STATIC)
@@ -322,10 +318,8 @@ if (CAPSTONE_BUILD_STATIC_RUNTIME)
         CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_DEBUG_INIT
         CMAKE_CXX_FLAGS_RELEASE  CMAKE_CXX_FLAGS_RELWITHDEBINFO
         CMAKE_CXX_FLAGS_DEBUG  CMAKE_CXX_FLAGS_DEBUG_INIT)
-        if (MSVC)
-            STRING(REPLACE "/MD"  "/MT" "${flag}" "${${flag}}")
-            SET("${flag}" "${${flag}} /EHsc")
-        endif (MSVC)
+        STRING(REPLACE "/MD"  "/MT" "${flag}" "${${flag}}")
+        SET("${flag}" "${${flag}} /EHsc")
     ENDFOREACH()
 endif ()
 
@@ -336,10 +330,6 @@ if (CAPSTONE_BUILD_SHARED)
 
     if (MSVC)
         set_target_properties(capstone-shared PROPERTIES IMPORT_SUFFIX _dll.lib)
-    else()
-        set_target_properties(capstone-shared PROPERTIES
-	    VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
-	    SOVERSION ${VERSION_MAJOR})
     endif ()
 
     if(NOT DEFINED default-target)      # honor `capstone-static` for tests first.
@@ -360,9 +350,6 @@ if (CAPSTONE_BUILD_TESTS)
         add_executable(${ARM_REGRESS_BIN} "suite/arm/${ARM_REGRESS_TEST}")
         target_link_libraries(${ARM_REGRESS_BIN} ${default-target})
     endif()
-    # fuzz target built with the tests
-    add_executable(fuzz_disasm suite/fuzz/onefile.c suite/fuzz/fuzz_disasm.c)
-    target_link_libraries(fuzz_disasm ${default-target})
 endif ()
 
 source_group("Source\\Engine" FILES ${SOURCES_ENGINE})
@@ -386,41 +373,19 @@ source_group("Include\\SystemZ" FILES ${HEADERS_SYSZ})
 source_group("Include\\X86" FILES ${HEADERS_X86})
 source_group("Include\\XCore" FILES ${HEADERS_XCORE})
 
-### test library 64bit routine:
-get_property(LIB64 GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS)
-
-if (NOT APPLE AND "${LIB64}" STREQUAL "TRUE")
-    set(LIBSUFFIX 64)
-else()
-    set(LIBSUFFIX "")
-endif()
-
-set(INSTALL_LIB_DIR     lib${LIBSUFFIX} CACHE PATH "Installation directory for libraries")
-mark_as_advanced(INSTALL_LIB_DIR)
-
 ## installation
 install(FILES ${HEADERS_COMMON} DESTINATION include/capstone)
-configure_file(capstone.pc.in capstone.pc @ONLY)
 
 if (CAPSTONE_BUILD_STATIC)
     install(TARGETS capstone-static
             RUNTIME DESTINATION bin
-            LIBRARY DESTINATION ${INSTALL_LIB_DIR}
-            ARCHIVE DESTINATION ${INSTALL_LIB_DIR})
+            LIBRARY DESTINATION lib
+            ARCHIVE DESTINATION lib)
 endif ()
 
 if (CAPSTONE_BUILD_SHARED)
     install(TARGETS capstone-shared
             RUNTIME DESTINATION bin
-            LIBRARY DESTINATION ${INSTALL_LIB_DIR}
-            ARCHIVE DESTINATION ${INSTALL_LIB_DIR})
-endif ()
-
-if (CAPSTONE_BUILD_SHARED AND CAPSTONE_BUILD_CSTOOL)
-FILE(GLOB CSTOOL_SRC cstool/*.c)
-add_executable(cstool ${CSTOOL_SRC})
-target_link_libraries(cstool ${default-target})
-
-install(TARGETS cstool DESTINATION bin)
-install(FILES ${CMAKE_BINARY_DIR}/capstone.pc DESTINATION lib/pkgconfig)
+            LIBRARY DESTINATION lib
+            ARCHIVE DESTINATION lib)
 endif ()

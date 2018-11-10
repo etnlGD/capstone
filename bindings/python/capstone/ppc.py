@@ -1,7 +1,6 @@
 # Capstone Python bindings, by Nguyen Anh Quynnh <aquynh@gmail.com>
 
-import ctypes
-from . import copy_ctypes_list
+import ctypes, copy
 from .ppc_const import *
 
 # define the API
@@ -59,5 +58,5 @@ class CsPpc(ctypes.Structure):
     )
 
 def get_arch_info(a):
-    return (a.bc, a.bh, a.update_cr0, copy_ctypes_list(a.operands[:a.op_count]))
+    return (a.bc, a.bh, a.update_cr0, copy.deepcopy(a.operands[:a.op_count]))
 
