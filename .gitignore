@@ -80,6 +80,7 @@ ipch/
 *.opensdf
 *.suo
 *.user
+msvc/.vs/
 
 # Xcode
 xcode/Capstone.xcodeproj/xcuserdata
